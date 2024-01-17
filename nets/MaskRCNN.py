@@ -4,7 +4,7 @@ import torch.nn as nn
 
 
 from nets.ResNet50 import Resnet50
-
+from utils.nn_operators import SamePad2d
 
 class MaskRcnn(nn.Module):
     def __init__(self):
@@ -15,6 +15,6 @@ class MaskRcnn(nn.Module):
         
         
     def forward(self, x):
-        featsmap = self.backbone(x)
+        featsmaps = self.backbone(x)
 
-        return featsmap
+        return featsmaps
