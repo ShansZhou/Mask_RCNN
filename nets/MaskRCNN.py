@@ -11,7 +11,7 @@ class MaskRcnn(nn.Module):
         super(MaskRcnn, self).__init__()
         
         # init backbone
-        self.backbone = Resnet50()
+        self.backbone = Resnet50(256)
         
         
     def forward(self, x):
