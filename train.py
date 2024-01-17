@@ -4,6 +4,7 @@ import time
 import utils.data_loader as dt_loader
 import torch
 import torch.optim as optim
+import torch.backends.cudnn as cudnn
 
 from nets.MaskRCNN import MaskRcnn
 
@@ -24,6 +25,7 @@ if __name__ == "__main__":
     model_train     = model.train()
     if Cuda:
         model_train     = torch.nn.DataParallel(model)
+        cudnn.benchmark = True
         model_train     = model_train.cuda()
         
     # training settings
@@ -54,6 +56,10 @@ if __name__ == "__main__":
             optimizer.zero_grad()
             
             # forwarding
+            # [B,H,W,C] -> [B,C,W,H]
+            images = images.transpose(1,3)
+            # [B,C,W,H] -> [B,C,H,W]
+            images = images.transpose(2,3)
             outputs = model_train(images)
             
             # calculate loss
