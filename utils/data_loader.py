@@ -4,7 +4,7 @@ import cv2 as cv
 from torch.utils.data.dataset import Dataset
 from torch.utils.data import DataLoader
 
-class YoloDataset(Dataset):
+class VOCDataset(Dataset):
     
     def __init__(self, annotation_lines, input_shape, num_classes, train):
         super().__init__()
@@ -101,9 +101,8 @@ def loadData(annotation_path, input_shape, num_classes, batch_size):
     with open(val_annotation_path) as f:
         val_lines   = f.readlines()
         
-    # train_dataset   = YoloDataset(train_lines, input_shape, num_classes, True)
-    train_dataset   = YoloDataset(train_lines[:200], input_shape, num_classes, True)
-    val_dataset     = YoloDataset(val_lines, input_shape, num_classes, False)
+    train_dataset   = VOCDataset(train_lines[:200], input_shape, num_classes, True)
+    val_dataset     = VOCDataset(val_lines, input_shape, num_classes, False)
 
     gen             = DataLoader(train_dataset, shuffle = True, batch_size = batch_size, num_workers = 1, pin_memory=True,
                             drop_last=True, collate_fn=yolo_dataset_collate)
