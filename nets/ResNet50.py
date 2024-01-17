@@ -151,19 +151,24 @@ class Resnet50(nn.Module):
         out_c5 = self.C5(out_c4)
         
         # FPN
-        # P5 
+        # P5
+        # [1,2048,13,13]->[1,256,13,13]
         m5 = self.P5_conv1(out_c5)
+        # [1,256,13,13] -> [1,256,13,13]
         p5 = self.P5_conv2(m5)
         
         # P4
+        # [1,1024,26,26] -> [1,256,26,26] + [1,256,13,13] -> [1,256,26,26]
         m4 = self.P4_conv1(out_c4) + F.upsample(m5, scale_factor=2)
         p4 = self.P4_conv2(m4)
         
         # P3
+        # [1,512,52,52] -> [1,256,52,52] + [1,256,26,26]-> [1,256,52,52]
         m3 = self.P3_conv1(out_c3) + F.upsample(m4, scale_factor=2)
         p3 = self.P3_conv2(m3)
         
         # P2
+        # [1,256,104,104] -> [1,256,104,104] + [1,256,52,52] -> [1,256,104,104]
         m2 = self.P2_conv1(out_c2) + F.upsample(m3, scale_factor=2)
         p2 = self.P2_conv2(m2)
         
