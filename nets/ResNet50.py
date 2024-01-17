@@ -14,11 +14,11 @@ class ResBlock(nn.Module):
         
         # 3x3, Chs
         self.padding2 = SamePad2d(kernel_size=3, stride=1)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1)
         self.bn2 = nn.BatchNorm2d(planes, eps=0.001, momentum=0.01)
         
         # 1x1, Chs*4
-        self.conv3 = nn.Conv2d(planes, planes*ResBlock.expansion, kernel_size=3, stride=stride)
+        self.conv3 = nn.Conv2d(planes, planes*ResBlock.expansion, kernel_size=1, stride=1)
         self.bn3 = nn.BatchNorm2d(planes*ResBlock.expansion, eps=0.001, momentum=0.01)
         
         self.relu = nn.ReLU(inplace=True)
@@ -35,9 +35,7 @@ class ResBlock(nn.Module):
         out = self.relu(out)
         
         # [H,W,chs] ->[H,W,chs]
-        out = self.padding2(out)
-        
-        out = self.conv2(out)
+        out = self.conv2(self.padding2(out))
         out = self.bn2(out)
         out = self.relu(out)
         
@@ -52,6 +50,8 @@ class ResBlock(nn.Module):
         # [H,W,chs] + [H,W,chs*4]
         out = out + residual
         out = self.relu(out)
+        
+        return out
 
 class Resnet50(nn.Module):
     def __init__(self):
@@ -70,7 +70,7 @@ class Resnet50(nn.Module):
             nn.MaxPool2d(kernel_size=3, stride=2)
         )
         
-        self.C2 = self.make_layers(self.block, 64, self.layers[0])
+        self.C2 = self.make_layers(self.block,  64, self.layers[0])
         self.C3 = self.make_layers(self.block, 128, self.layers[1], stride=2)
         self.C4 = self.make_layers(self.block, 256, self.layers[2], stride=2)
         self.C5 = self.make_layers(self.block, 512, self.layers[3], stride=2)
@@ -78,9 +78,9 @@ class Resnet50(nn.Module):
     
     def make_layers(self, block, planes, blocks, stride=1):
         downsample = None
-        out_planes = planes*ResBlock.expansion
+        out_planes = planes*block.expansion
         if stride != 1 or self.inplanes != out_planes:
-            downsample == nn.Sequential(
+            downsample = nn.Sequential(
                 nn.Conv2d(self.inplanes, out_planes, kernel_size=1, stride=stride),
                 nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.01)
             )
@@ -89,7 +89,7 @@ class Resnet50(nn.Module):
         # build first block whose stride is different from other blocks
         # stride = 2: downsample the featmap
         layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * ResBlock.expansion # self.inplanes changed when calling make_layers, TODO
+        self.inplanes = out_planes # self.inplanes changed when calling make_layers, TODO
         
         # build rest blocks: layers - 1, stride==1
         for i in range(1, blocks):
@@ -104,16 +104,16 @@ class Resnet50(nn.Module):
         # [1,3,416,416]->[1,64,104,104]
         out = self.C1(x)
         
-        # [1,64,104,104]->[1,256,52,52]
+        # [1,64,104,104]->[1,256,104,104]
         out = self.C2(out)
        
-        # [1,256,52,52]->[1,512,26,26]
+        # [1,256,104,104]->[1,512,52,52]
         out = self.C3(out)
         
-        # [1,512,26,26]->[1,1024,13,13]
+        # [1,512,52,52]->[1,1024,26,26]
         out = self.C4(out)
         
-        # [1,1024,13,13]->[1,2048,6,6]
+        # [1,1024,26,26]->[1,2048,13,13]
         out = self.C5(out)
         
         return out
