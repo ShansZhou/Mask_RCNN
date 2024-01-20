@@ -60,10 +60,12 @@ if __name__ == "__main__":
             images = images.transpose(1,3)
             # [B,C,W,H] -> [B,C,H,W]
             images = images.transpose(2,3)
+            
+            # outputs = [rpn_logits, rpn_bbox, classifNet_logits, classifNet_bboxes, mask]
             outputs = model_train(images)
             
             # calculate loss
-            loss = model.loss(outputs, GTs)
+            loss = model.computeLoss(outputs, GTs)
             
             # BP
             loss.backward()

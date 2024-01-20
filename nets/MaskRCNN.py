@@ -154,7 +154,8 @@ class Mask_Net(nn.Module):
 class MaskRcnn(nn.Module):
     def __init__(self):
         super(MaskRcnn, self).__init__()
-        
+        # batch size
+        self.batch_size = 2
         # nms_thres
         self.nms_thres = 0.5
         # maximum proposals
@@ -186,9 +187,6 @@ class MaskRcnn(nn.Module):
         # init mask head
         self.mask_net = Mask_Net(self.out_chs,self.cls_poolsize, self.image_shape, self.num_classes)
         
-        
-        
-        
     def forward(self, x):
         
         # featsmap in different scale
@@ -199,44 +197,51 @@ class MaskRcnn(nn.Module):
         # p6 [B,256,7,7],     stride = 64
         featsmaps = self.backbone(x)
         
-        # for each feat map in different scale, compute the proposals
-        feats_roialign_pred = []
-        feats_roialign_mask = []
-        for i, featsmap in enumerate(featsmaps):
+        outputs = []
+        for bid in range(self.batch_size):
+            # for each feat map in different scale, compute the proposals
+            feats_roialign_pred = []
+            feats_roialign_mask = []
+            for i, featsmap in enumerate(featsmaps):
+                
+                featsmap = featsmap[bid].unsqueeze(0)
+                
+                # generate RPN classes adn RPN bboxes
+                [rpn_logits,rpn_soft_class, rpn_bbox] = self.RPN(featsmap)
+                
+                # generate anchors [B, N, x1,y1,x2,y2]
+                gl_anchors = self.genAnchors(i, featsmap)
+                
+                # generate proposals [N, (Bid,x1,y1,x2,y2)]
+                rpn_rois = self.generateProposals(featsmap.cpu(),
+                                                rpn_soft_class.cpu(), 
+                                                rpn_bbox.cpu(), 
+                                                gl_anchors.cpu()
+                                                )
+                rpn_rois = rpn_rois.cuda()
+                
+                # Featmap with ROIs
+                pred_head_shape = [7,7]
+                mask_head_shape = [14,14]
+                spatial_scale = 1.0 / self.featmap_strides[i]
+                roiAligns_pred = tvops.roi_align(featsmap, rpn_rois,pred_head_shape, spatial_scale)
+                roiAligns_mask = tvops.roi_align(featsmap, rpn_rois,mask_head_shape, spatial_scale)
+                
+                feats_roialign_pred.append(roiAligns_pred)
+                feats_roialign_mask.append(roiAligns_mask)
             
-            # generate RPN classes adn RPN bboxes
-            [rpn_logits,rpn_soft_class, rpn_bbox] = self.RPN(featsmap)
+            feats_roialign_pred = t.cat(feats_roialign_pred, dim=0)
+            feats_roialign_mask = t.cat(feats_roialign_mask, dim=0)
             
-            # generate anchors [B, N, x1,y1,x2,y2]
-            gl_anchors = self.genAnchors(i, featsmap)
+            # Classifier and Boxes Regression heads
+            [classifNet_logits, classifNet_scores, classifNet_bboxes] = self.classif_net(feats_roialign_pred)
+            # Mask detection head
+            mask = self.mask_net(feats_roialign_mask)
+
+            outputs.append([rpn_logits, rpn_bbox, classifNet_logits, classifNet_bboxes, mask])
             
-            # generate proposals [N, (Bid,x1,y1,x2,y2)]
-            rpn_rois = self.generateProposals(featsmap.cpu(),
-                                              rpn_soft_class.cpu(), 
-                                              rpn_bbox.cpu(), 
-                                              gl_anchors.cpu()
-                                              )
-            rpn_rois = rpn_rois.cuda()
             
-            # Featmap with ROIs
-            pred_head_shape = [7,7]
-            mask_head_shape = [14,14]
-            spatial_scale = 1.0 / self.featmap_strides[i]
-            roiAligns_pred = tvops.roi_align(featsmap, rpn_rois,pred_head_shape, spatial_scale)
-            roiAligns_mask = tvops.roi_align(featsmap, rpn_rois,mask_head_shape, spatial_scale)
-            
-            feats_roialign_pred.append(roiAligns_pred)
-            feats_roialign_mask.append(roiAligns_mask)
-        
-        feats_roialign_pred = t.cat(feats_roialign_pred, dim=0)
-        feats_roialign_mask = t.cat(feats_roialign_mask, dim=0)
-        
-        # Classifier and Boxes Regression heads
-        [classifNet_logits, classifNet_scores, classifNet_bboxes] = self.classif_net(feats_roialign_pred)
-        # Mask detection head
-        mask = self.mask_net(feats_roialign_mask)
-        
-        return [rpn_logits, rpn_bbox, classifNet_logits, classifNet_bboxes, mask]
+        return outputs
     
     def generateProposals(self, featsmap, rpn_class, rpn_box, gl_anchors):
         
@@ -345,5 +350,27 @@ class MaskRcnn(nn.Module):
     def decodeBoxWithInfo(self, rpn_rois, scores, bboxes, featsmaps):
         return detections
     
-    def computeLoss(self):
-        return loss
+    def computeLoss(self, outputs, GTs):
+        
+        loss_total = 0.0
+        for bid in range(self.batch_size):
+            
+            output = outputs[bid]
+            
+            targets = GTs[bid]
+            
+            
+            
+            # RPN logits loss
+            
+            # RPN bbox loss
+            
+            # ClassifNet logits loss
+            
+            # ClassifNet bbox loss
+            
+            # MaskNet loss 
+            
+            
+        
+        return loss_total / self.batch_size
