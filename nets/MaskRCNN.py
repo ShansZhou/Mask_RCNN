@@ -156,6 +156,8 @@ class MaskRcnn(nn.Module):
         super(MaskRcnn, self).__init__()
         # batch size
         self.batch_size = 2
+        # model input shape
+        self.image_shape = [416, 416]
         # nms_thres
         self.nms_thres = 0.5
         # maximum proposals
@@ -173,13 +175,13 @@ class MaskRcnn(nn.Module):
         self.anchor_ratios = t.tensor([0.5,1,2])
         self.num_anchors = len(self.anchor_scales)*len(self.anchor_ratios)
         self.anchor_stride =1
+        self.prior_anchors = self.genAnchors()
         self.RPN = RPN(num_anchors=self.num_anchors,
                        anchor_stride=self.anchor_stride,
                        chs=self.out_chs)
         
         # init classifier head
         self.cls_poolsize = 7
-        self.image_shape = [416, 416]
         self.num_classes = 20
         self.classif_net = Classifier(self.out_chs, self.cls_poolsize, self.image_shape, self.num_classes)
         
@@ -209,8 +211,8 @@ class MaskRcnn(nn.Module):
                 # generate RPN classes adn RPN bboxes
                 [rpn_logits,rpn_soft_class, rpn_bbox] = self.RPN(featsmap)
                 
-                # generate anchors [B, N, x1,y1,x2,y2]
-                gl_anchors = self.genAnchors(i, featsmap)
+                # generate anchors [N, x1,y1,x2,y2]
+                gl_anchors = self.prior_anchors[i]
                 
                 # generate proposals [N, (Bid,x1,y1,x2,y2)]
                 rpn_rois = self.generateProposals(featsmap.cpu(),
@@ -247,10 +249,10 @@ class MaskRcnn(nn.Module):
         
         batchsize = featsmap.shape[0]
         
-        # use the foregroud confidence [B, N, 1]
+        # use the foregroud confidence [N, 1]
         scores = rpn_class[...,1]
         
-        # box deltas [B, N, 4]
+        # box deltas [N, 4]
         deltas = rpn_box
         
         # apply rpnbox to anchors
@@ -309,43 +311,48 @@ class MaskRcnn(nn.Module):
         
         return rpn_rois
         
-    def genAnchors(self, sidx, featsmap):
-        b,_,ft_H,ft_W = featsmap.shape
+    def genAnchors(self):
         
-        # generate base anchors (x1,y1,x2,y2)
-        fm_stride = self.featmap_strides[sidx]
-        px = fm_stride/2
-        py = fm_stride/2
-        base_anchors = t.zeros(self.num_anchors, 4)
-        
-        for i in range(len(self.anchor_ratios)):
-            for j in range(len(self.anchor_scales)):
-                
-                w = fm_stride*self.anchor_scales[j]*t.sqrt(self.anchor_ratios[i])
-                
-                h = fm_stride*self.anchor_scales[j]/t.sqrt(self.anchor_ratios[i])
-                
-                bId = i*len(self.anchor_ratios) + j
-                
-                base_anchors[bId] = t.Tensor([px - w/2, py - h/2, px + w/2, py + h/2])
-                
-        
-        # generate global anchors assciated with current featmap
-        gridY, gridX = t.meshgrid(t.arange(ft_W), t.arange(ft_H))
-        gridX, gridY = gridX.contiguous(), gridY.contiguous()
-        # the grids on sourceImg with stride, generate anchors at every grid location
-        x1 = gridX.view((-1,1))*fm_stride + base_anchors[:,0]
-        y1 = gridY.view((-1,1))*fm_stride + base_anchors[:,1]
-        x2 = gridX.view((-1,1))*fm_stride + base_anchors[:,2]
-        y2 = gridY.view((-1,1))*fm_stride + base_anchors[:,3]
-        
-        # [anchors, (y1,x1,y2,x2)]
-        anchors = t.stack([x1,y1,x2,y2], dim=-1)
-        anchors = anchors.view((-1,4))
-        
-        # [B, anchors, (y1,x1,y2,x2)]
-        anchors = anchors.squeeze(0).repeat(b,1,1)
-        return anchors
+        prior_anchors = []
+        for feat_stride in self.featmap_strides:
+            
+            ft_H = int(self.image_shape[0]/feat_stride)
+            ft_W = int(self.image_shape[1]/feat_stride)
+            
+            # generate base anchors (x1,y1,x2,y2)
+            fm_stride = feat_stride
+            px = fm_stride/2
+            py = fm_stride/2
+            base_anchors = t.zeros(self.num_anchors, 4)
+            
+            for i in range(len(self.anchor_ratios)):
+                for j in range(len(self.anchor_scales)):
+                    
+                    w = fm_stride*self.anchor_scales[j]*t.sqrt(self.anchor_ratios[i])
+                    
+                    h = fm_stride*self.anchor_scales[j]/t.sqrt(self.anchor_ratios[i])
+                    
+                    bId = i*len(self.anchor_ratios) + j
+                    
+                    base_anchors[bId] = t.Tensor([px - w/2, py - h/2, px + w/2, py + h/2])
+                    
+            
+            # generate global anchors assciated with current featmap
+            gridY, gridX = t.meshgrid(t.arange(ft_W), t.arange(ft_H))
+            gridX, gridY = gridX.contiguous(), gridY.contiguous()
+            # the grids on sourceImg with stride, generate anchors at every grid location
+            x1 = gridX.view((-1,1))*fm_stride + base_anchors[:,0]
+            y1 = gridY.view((-1,1))*fm_stride + base_anchors[:,1]
+            x2 = gridX.view((-1,1))*fm_stride + base_anchors[:,2]
+            y2 = gridY.view((-1,1))*fm_stride + base_anchors[:,3]
+            
+            # [anchors, (y1,x1,y2,x2)]
+            anchors = t.stack([x1,y1,x2,y2], dim=-1)
+            anchors = anchors.view((-1,4))
+            
+            prior_anchors.append(anchors)
+            
+        return prior_anchors
     
     def decodeBoxWithInfo(self, rpn_rois, scores, bboxes, featsmaps):
         return detections
@@ -355,10 +362,19 @@ class MaskRcnn(nn.Module):
         loss_total = 0.0
         for bid in range(self.batch_size):
             
-            output = outputs[bid]
+            # decoding the prediction from forwarding to source
+            rpn_logits, rpn_bbox, classifNet_logits, classifNet_bboxes, pred_mask = outputs[bid]
             
-            targets = GTs[bid]
+            # detections = self.decodeBoxWithInfo()
             
+            # decode the ground truth
+            targets_dict = GTs[bid]
+            
+            gt_boxes = targets_dict["boxes"]
+            
+            gt_classes = targets_dict["labels"]
+            
+            gt_mask = targets_dict["masks"]
             
             
             # RPN logits loss
