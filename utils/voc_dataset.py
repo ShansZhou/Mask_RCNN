@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 
 
-VOC_CLASSES = (
+VOC_CLASSES = ("background",
     "aeroplane", "bicycle", "bird", "boat", "bottle",
     "bus", "car", "cat", "chair", "cow", "diningtable",
     "dog", "horse", "motorbike", "person", "pottedplant",
@@ -62,7 +62,7 @@ class VOCDataset(Dataset):
             bndbox = obj.find("bndbox")
             bbox = [int(bndbox.find(tag).text) for tag in ["xmin", "ymin", "xmax", "ymax"]]
             name = obj.find("name").text
-            label = VOC_CLASSES.index(name) + 1
+            label = VOC_CLASSES.index(name)
 
             boxes.append(np.expand_dims(bbox,0))
             labels.append(label)
@@ -102,6 +102,7 @@ class VOCDataset(Dataset):
         mask_input[dy:(dy+new_h), dx:(dx+new_w)] = np.array(mask_scaled)
         
         # mapping original box coords to new image
+        # box [x1,y1,x2,y2] -> box[x1,y1,x2,y2]
         if len(box)>0:
             box[:, [0,2]] = box[:, [0,2]]*scalar + dx
             box[:, [1,3]] = box[:, [1,3]]*scalar + dy

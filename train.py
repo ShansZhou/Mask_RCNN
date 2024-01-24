@@ -8,6 +8,7 @@ import torch.backends.cudnn as cudnn
 
 from nets.MaskRCNN import MaskRcnn
 
+torch.autograd.set_detect_anomaly(True)
 
 if __name__ == "__main__":
     
@@ -16,11 +17,12 @@ if __name__ == "__main__":
     ########### Loading data
 
     # read classes
+    batch_size      = 1
     class_names, num_classes = dt_loader.VOC_CLASSES, len(dt_loader.VOC_CLASSES)
 
     # model data
     input_shape     = [416, 416]
-    model           = MaskRcnn()
+    model           = MaskRcnn(batch_size, input_shape)
     model_train     = model.train()
     if Cuda:
         model_train     = torch.nn.DataParallel(model)
@@ -29,7 +31,6 @@ if __name__ == "__main__":
         
     # training settings
     epoch_total     = 1
-    batch_size      = 2
     learn_rate      = 1e-3
     optimizer       = optim.Adam(model_train.parameters(), learn_rate, weight_decay = 5e-4)
     
@@ -66,11 +67,11 @@ if __name__ == "__main__":
             outputs = model_train(images_t)
             
             # calculate loss
-            loss = model.computeLoss(outputs, GTs)
-            
+            loss = model.loss(outputs, GTs)
+            loss = loss/batch_size
             # BP
             loss.backward()
-            
+            print("loss: %.3f" % loss)
             optimizer.step()
     
         print("training is finished")
